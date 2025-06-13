@@ -1,0 +1,14 @@
+data:
+  path: "dataset/student_performance.csv"
+  target_column: "Performance Index"
+  test_size: 0.2
+
+training:
+  num_epochs: 500
+  batch_size: 16
+  learning_rate: 0.001
+  patience: 50
+
+model:
+  hidden_layers: [32, 16, 8]
+  activation: "tanh"
