@@ -25,8 +25,6 @@ class RegressionTrainer:
             config_path: Path to the YAML config file
         """
         self.config = self._load_config(config_path)
-        
-        # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = torch.device("cpu")
         
         torch.manual_seed(42)
@@ -115,7 +113,7 @@ class RegressionTrainer:
         if n_samples % batch_size != 0:
             n_batches += 1
         
-        print(f"Starting training for {num_epochs} epochs with batch size {batch_size}")
+        print(f"\nStarting training for {num_epochs} epochs with batch size {batch_size}")
         
         # Training loop
         for epoch in range(num_epochs):
@@ -171,7 +169,7 @@ class RegressionTrainer:
         # Restore the best model
         self.epoch_tracker.restore_best_model()
         best_info = self.epoch_tracker.get_best_info()
-        print(f"\nTraining completed. Best epoch: {best_info['epoch']} with loss: {best_info['loss']:.6f}")
+        print(f"\nTraining completed. Best epoch: {best_info['epoch']} with loss: {best_info['loss']:.4f}")
         
         return best_info
     
@@ -196,12 +194,6 @@ class RegressionTrainer:
             rmse = np.sqrt(mse)
             mae = mean_absolute_error(y_true, y_pred)
             r2 = r2_score(y_true, y_pred)
-            
-            print("\nFinal Model Evaluation:")
-            print(f"Mean Squared Error (MSE): {mse:.4f}")
-            print(f"Root Mean Squared Error (RMSE): {rmse:.4f}")
-            print(f"Mean Absolute Error (MAE): {mae:.4f}")
-            print(f"R-squared (R2): {r2:.4f}")
             
             return {
                 'mse': mse,
@@ -238,6 +230,8 @@ class RegressionTrainer:
         
         # Restore best model first
         self.epoch_tracker.restore_best_model()
+        best_info = self.epoch_tracker.get_best_info()
+        print(f"Restored model from best epoch: {best_info['epoch']} with loss: {best_info['loss']:.4f}")
         
         # Save best model
         torch.save(self.model.state_dict(), os.path.join(best_model_dir, "model_weights.pth"))
@@ -247,6 +241,18 @@ class RegressionTrainer:
         example_input = torch.randn(1, self.X_train_scaled.shape[1]).to(self.device)
         traced_model = torch.jit.trace(self.model, example_input)
         traced_model.save(os.path.join(best_model_dir, "model_libtorch.pt"))
+        
+        # Export best model to ONNX
+        onnx_path = os.path.join(best_model_dir, "model.onnx")
+        torch.onnx.export(
+            self.model,
+            example_input,
+            onnx_path,
+            input_names=["input"],
+            output_names=["output"],
+            dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
+            opset_version=11
+        )
         
         # Now, if we have the last model state saved, restore it and save as last model
         if hasattr(self, 'last_model_state'):
@@ -263,6 +269,19 @@ class RegressionTrainer:
             # Save traced last model for production
             traced_model = torch.jit.trace(self.model, example_input)
             traced_model.save(os.path.join(last_model_dir, "model_libtorch.pt"))
+            
+            # Export last model to ONNX
+            onnx_path_last = os.path.join(last_model_dir, "model.onnx")
+            torch.onnx.export(
+                self.model,
+                example_input,
+                onnx_path_last,
+                input_names=["input"],
+                output_names=["output"],
+                dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
+                opset_version=11
+            )
+            print(f"- ONNX model (last) exported to: {onnx_path_last}")
         
         # Save scalers
         joblib.dump(self.scaler_X, os.path.join(results_dir, "scaler_X.pkl"))
@@ -351,6 +370,16 @@ class RegressionTrainer:
         os.makedirs(results_dir, exist_ok=True)
 
         metrics = self.final_evaluation()
+        mse = metrics['mse']
+        rmse = metrics['rmse']
+        mae = metrics['mae']
+        r2 = metrics['r2']
+        
+        print("\nFinal Model Evaluation:")
+        print(f"Mean Squared Error (MSE): {mse:.4f}")
+        print(f"Root Mean Squared Error (RMSE): {rmse:.4f}")
+        print(f"Mean Absolute Error (MAE): {mae:.4f}")
+        print(f"R-squared (R2): {r2:.4f}")
         
         metrics_path = os.path.join(results_dir, "evaluation_metrics.txt")
         with open(metrics_path, 'w') as f:
@@ -360,4 +389,4 @@ class RegressionTrainer:
             f.write(f"Mean Absolute Error (MAE): {metrics['mae']:.6f}\n")
             f.write(f"R-squared (R2): {metrics['r2']:.6f}\n")
         
-        print(f"Metrics saved to {metrics_path}")
+        print(f"\nMetrics saved to {metrics_path}")
